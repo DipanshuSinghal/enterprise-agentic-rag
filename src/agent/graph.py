@@ -16,6 +16,7 @@ def build_agent_graph():
     workflow.add_node("grade_documents", nodes.grade_documents)
     workflow.add_node("generate", nodes.generate)
     workflow.add_node("transform_query", nodes.transform_query)
+    workflow.add_node("web_search", nodes.web_search)  # 🟢 Added live web fallback node
     
     # 4. Define data execution paths (edges)
     workflow.set_entry_point("retrieve")
@@ -29,9 +30,12 @@ def build_agent_graph():
         route_after_grading,
         {
             "generate": "generate",
-            "transform_query": "transform_query"
+            "web_search": "web_search"  # 🟢 Route to web search instead of transform_query loop
         }
     )
+    
+    # 🟢 Connect the output of the web search node directly to answer generation
+    workflow.add_edge("web_search", "generate")
     
     # If query transformation happens, loop back and re-query database
     workflow.add_edge("transform_query", "retrieve")

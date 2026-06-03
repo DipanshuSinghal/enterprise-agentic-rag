@@ -39,7 +39,7 @@ if user_query := st.chat_input("Ask your knowledge base a question..."):
                 # Fire standard POST request directly to your local FastAPI gateway server
                 api_url = "http://127.0.0.1:8000/api/v1/query"
                 payload = {"query": user_query}
-                response = requests.post(api_url, json=payload, timeout=60)
+                response = requests.post(api_url, json=payload, timeout=500)
                 
                 if response.status_code == 200:
                     data = response.json()
