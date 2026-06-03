@@ -1,65 +1,90 @@
 import streamlit as st
 import requests
+import json
+import uuid  # 🟢 NEW: Import UUID to generate unique session keys
 
-# 1. Page Configuration Customization
-st.set_page_config(
-    page_title="Enterprise Agentic RAG Chat",
-    page_icon="🤖",
-    layout="centered"
-)
+# 1. Configure page view dimensions and branding layouts
+st.set_page_config(page_title="Enterprise AI Assistant", page_icon="🤖", layout="centered")
+st.title("Enterprise AI Knowledge Assistant")
+st.subheader("State-Driven Academic & Web Search Engine")
 
-st.title("🤖 Enterprise Agentic RAG Chatbot")
-st.markdown("Interact live with your self-correcting LangGraph & Qdrant pipeline.")
+# 2. 🟢 NEW: Initialize a truly unique, persistent thread ID for this specific chat session
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
 
-# 2. Initialize chat message history state if not already present
+# Initialize safe persistent conversation arrays inside state memory
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 3. Render all existing messages from history on page refresh
+# 3. Render historical conversation threads so they stay visible on refresh
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-        if "steps" in message:
-            st.caption(f"🧭 **Agent Routing Path:** { ' ➔ '.join(message['steps']) }")
+        if message.get("sources"):
+            with st.expander("📚 Verified References Used"):
+                for idx, src in enumerate(message["sources"], 1):
+                    st.markdown(f"**Reference [{idx}]:**")
+                    st.info(src)
 
-# 4. Accept fresh user input
-if user_query := st.chat_input("Ask your knowledge base a question..."):
-    # Display user message instantly
+# 4. Capture inbound text from the chat entry input field
+user_input = st.chat_input("Ask your knowledge base a question...")
+
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
-        st.markdown(user_query)
-    st.session_state.messages.append({"role": "user", "content": user_query})
-
-    # Display assistant processing placeholder spinner
-    with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        status_placeholder = st.empty()
+        st.markdown(user_input)
         
-        with st.spinner("Agent thinking and verifying documents..."):
-            try:
-                # Fire standard POST request directly to your local FastAPI gateway server
-                api_url = "http://127.0.0.1:8000/api/v1/query"
-                payload = {"query": user_query}
-                response = requests.post(api_url, json=payload, timeout=500)
+    with st.chat_message("assistant"):
+        status_placeholder = st.empty()
+        response_placeholder = st.empty()
+        
+        full_response = ""
+        retrieved_sources = []
+        api_url = "http://127.0.0.1:8000/api/v1/query"
+        
+        try:
+            # 🟢 UPDATED: Pass both the user query and the unique thread_id to the backend payload
+            payload = {
+                "query": user_input,
+                "thread_id": st.session_state.thread_id
+            }
+            
+            response = requests.post(api_url, json=payload, stream=True)
+            
+            for line in response.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8').strip()
+                    if decoded_line.startswith("data: "):
+                        json_str = decoded_line.replace("data: ", "").strip()
+                        try:
+                            data = json.loads(json_str)
+                            if "node" in data:
+                                status_placeholder.caption(f"⚙️ Node active: `{data['node'].upper()}`...")
+                            if "text" in data and data["text"]:
+                                full_response += str(data["text"])
+                                response_placeholder.markdown(full_response + "▌")
+                            if "sources" in data:
+                                retrieved_sources = data["sources"]
+                        except json.JSONDecodeError:
+                            continue
+                            
+            response_placeholder.markdown(full_response)
+            status_placeholder.empty()
+            
+            if retrieved_sources:
+                with st.expander("📚 Verified References & Context Sources", expanded=False):
+                    for idx, source in enumerate(retrieved_sources, 1):
+                        st.markdown(f"**Source [{idx}]:**")
+                        st.info(source)
+            else:
+                st.caption("✅ Execution finished (No external source references used).")
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    generation = data.get("generation", "No generation produced.")
-                    steps = data.get("steps_traced", [])
-                    
-                    # Render the final answers into the visual block
-                    response_placeholder.markdown(generation)
-                    if steps:
-                        status_placeholder.caption(f"🧭 **Agent Routing Path:** { ' ➔ '.join(steps) }")
-                    
-                    # Append response history record to persistent state
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": generation,
-                        "steps": steps
-                    })
-                else:
-                    error_msg = f"⚠️ API Server Error (Status Code: {response.status_code})"
-                    response_placeholder.markdown(error_msg)
-                    
-            except requests.exceptions.ConnectionError:
-                response_placeholder.markdown("❌ **Connection Failed.** Please make sure your FastAPI backend server is running on port 8000!")
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": full_response,
+                "sources": retrieved_sources
+            })
+            
+        except Exception as e:
+            status_placeholder.empty()
+            st.error(f"Streaming network error occurred: {str(e)}")

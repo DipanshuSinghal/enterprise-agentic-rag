@@ -1,10 +1,11 @@
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver  # 🟢 NEW: Import native state checkpointer
 from src.agent.state import AgentState
 from src.agent.nodes import GraphNodes
 from src.agent.edges import route_after_grading
 
 def build_agent_graph():
-    """Compiles individual node functions and routing criteria into a LangGraph runner."""
+    """Compiles individual node functions, routing criteria, and memory state buffers."""
     # 1. Initialize the state tracker scheme
     workflow = StateGraph(AgentState)
     
@@ -16,7 +17,7 @@ def build_agent_graph():
     workflow.add_node("grade_documents", nodes.grade_documents)
     workflow.add_node("generate", nodes.generate)
     workflow.add_node("transform_query", nodes.transform_query)
-    workflow.add_node("web_search", nodes.web_search)  # 🟢 Added live web fallback node
+    workflow.add_node("web_search", nodes.web_search)
     
     # 4. Define data execution paths (edges)
     workflow.set_entry_point("retrieve")
@@ -30,11 +31,11 @@ def build_agent_graph():
         route_after_grading,
         {
             "generate": "generate",
-            "web_search": "web_search"  # 🟢 Route to web search instead of transform_query loop
+            "web_search": "web_search"
         }
     )
     
-    # 🟢 Connect the output of the web search node directly to answer generation
+    # Connect the output of the web search node directly to answer generation
     workflow.add_edge("web_search", "generate")
     
     # If query transformation happens, loop back and re-query database
@@ -43,5 +44,8 @@ def build_agent_graph():
     # Connect successful answer generations to exit terminal
     workflow.add_edge("generate", END)
     
-    # 5. Compile state machine system
-    return workflow.compile()
+    # 🟢 NEW: Instantiate the MemorySaver buffer canvas
+    memory = MemorySaver()
+    
+    # 5. Compile state machine system with persistent thread memory configured!
+    return workflow.compile(checkpointer=memory)

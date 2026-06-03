@@ -4,12 +4,18 @@ from typing import List, Optional
 class QueryRequest(BaseModel):
     """
     Inbound Request Validation Schema.
-    Ensures incoming client JSON payloads contain a valid query string.
+    Validates payload elements arriving from the user frontend client.
     """
     query: str = Field(
-        ..., 
+        ...,
         description="The natural language question to ask the self-correcting agent database.",
         examples=["What is the content discussed in the documentation?"]
+    )
+    
+    # 🟢 NEW: Thread Identifier tracking variable for persistent session memory states
+    thread_id: Optional[str] = Field(
+        default="default_session",
+        description="Unique UUID string tracking independent conversational multi-turn history states."
     )
 
 class QueryResponse(BaseModel):
